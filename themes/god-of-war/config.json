@@ -34,6 +34,10 @@
     "scan:752:com.amazon.amazonvideo.livingroom",
     "4057:com.apple.atve.androidtv.appletv",
     "scan:236:com.apple.atve.androidtv.appletv",
-    "scan:485:com.apple.atve.androidtv.appletv"
+    "scan:485:com.apple.atve.androidtv.appletv",
+    "4077:settings",
+    "scan:233:settings",
+    "scan:561:settings",
+    "83:settings"
   ]
 }
