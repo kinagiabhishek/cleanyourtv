@@ -1,0 +1,39 @@
+{
+  "dock_apps": [
+    "com.netflix.ninja",
+    "com.amazon.amazonvideo.livingroom",
+    "com.google.android.youtube.tv",
+    "in.startv.hotstar",
+    "com.apple.atve.androidtv.appletv",
+    "com.crunchyroll.crunchyroid"
+  ],
+  "wallpaper": true,
+  "wallpaper_rotation_minutes": 2,
+  "wallpaper_order": "shuffle",
+  "dock_glass": true,
+  "background_color": "#000000",
+  "ambient_glow": false,
+  "app_glow": false,
+  "glow_style": "off",
+  "fade_rows": true,
+  "glass_style": "halo",
+  "focus_overshoot": true,
+  "app_keys": [
+    "4140:in.startv.hotstar",
+    "scan:748:in.startv.hotstar",
+    "scan:660:in.startv.hotstar",
+    "4020:com.crunchyroll.crunchyroid",
+    "scan:227:com.crunchyroll.crunchyroid",
+    "scan:456:com.crunchyroll.crunchyroid",
+    "scan:650:com.crunchyroll.crunchyroid",
+    "4062:com.netflix.ninja",
+    "scan:242:com.netflix.ninja",
+    "4065:com.google.android.youtube.tv",
+    "scan:245:com.google.android.youtube.tv",
+    "4099:com.amazon.amazonvideo.livingroom",
+    "scan:752:com.amazon.amazonvideo.livingroom",
+    "4057:com.apple.atve.androidtv.appletv",
+    "scan:236:com.apple.atve.androidtv.appletv",
+    "scan:485:com.apple.atve.androidtv.appletv"
+  ]
+}

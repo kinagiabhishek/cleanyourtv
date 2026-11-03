@@ -300,11 +300,11 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             // uniform_tiles draws the icon, so an app's banner is never loaded. A module card keeps its banner.
             if (!(uniformTiles && card == null)) {
                 banner = bundledBanner(appBanners.get(pkg));
-                if (banner == null) banner = iconTiles.contains(pkg) ? iconBanner(ri.loadIcon(pm)) : loadBanner(pm, ri);
+                if (banner == null) banner = iconTiles.contains(pkg) ? iconBanner(loadIcon(pm, ri)) : loadBanner(pm, ri);
             }
             // The icon is only drawn (and sampled for the glow) when there is no banner, so a tile with a
             // banner skips loading and decoding it.
-            Drawable icon = banner == null ? ri.loadIcon(pm) : null;
+            Drawable icon = banner == null ? loadIcon(pm, ri) : null;
             if (card != null) {
                 fresh.add(new Entry(Entry.CARD, label, component, banner, icon, card.caption, card.accent));
             } else {
@@ -347,13 +347,32 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     /** icon_tiles: the app's icon centred on a dark banner-shaped tile, for apps whose own banner crops badly. */
     private Drawable iconBanner(Drawable icon) {
-        int w = 320, h = 180, side = 104;
+        int w = 640, h = 360, side = 208;
         android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
         android.graphics.Canvas canvas = new android.graphics.Canvas(bmp);
         canvas.drawColor(0xFF15202B);
-        icon.setBounds((w - side) / 2, (h - side) / 2, (w + side) / 2, (h + side) / 2);
-        icon.draw(canvas);
-        return new android.graphics.drawable.BitmapDrawable(ctx.getResources(), bmp);
+        if (icon != null) {
+            icon.setBounds((w - side) / 2, (h - side) / 2, (w + side) / 2, (h + side) / 2);
+            icon.draw(canvas);
+        }
+        android.graphics.drawable.BitmapDrawable bd = new android.graphics.drawable.BitmapDrawable(ctx.getResources(), bmp);
+        bd.setAntiAlias(true);
+        bd.setFilterBitmap(true);
+        return bd;
+    }
+
+    private Drawable loadIcon(PackageManager pm, ResolveInfo ri) {
+        int id = ri.activityInfo.icon;
+        if (id == 0) id = ri.activityInfo.applicationInfo.icon;
+        if (id != 0) {
+            try {
+                Resources resources = pm.getResourcesForApplication(ri.activityInfo.applicationInfo);
+                int density = Math.max(DisplayMetrics.DENSITY_XXXHIGH, ctx.getResources().getDisplayMetrics().densityDpi);
+                return resources.getDrawableForDensity(id, density, null);
+            } catch (Exception ignored) {
+            }
+        }
+        return ri.loadIcon(pm);
     }
 
     /** A banner_* drawable bundled with the launcher, or null for none or a name that is not one. */
@@ -370,8 +389,8 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (id != 0) {
             try {
                 Resources resources = pm.getResourcesForApplication(ri.activityInfo.applicationInfo);
-                // Keep at least xhdpi detail rather than downsampling artwork before the focus zoom.
-                int density = Math.max(DisplayMetrics.DENSITY_XHIGH, ctx.getResources().getDisplayMetrics().densityDpi);
+                // Keep xxxhdpi detail for crisp 4K rendering rather than downsampling
+                int density = Math.max(DisplayMetrics.DENSITY_XXXHIGH, ctx.getResources().getDisplayMetrics().densityDpi);
                 banner = resources.getDrawableForDensity(id, density, null);
             } catch (PackageManager.NameNotFoundException | Resources.NotFoundException ignored) {
             }
@@ -496,6 +515,10 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             h.card.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, e.backdrop));
         }
         if (e.banner != null) {
+            if (e.banner instanceof android.graphics.drawable.BitmapDrawable) {
+                ((android.graphics.drawable.BitmapDrawable) e.banner).setAntiAlias(true);
+                ((android.graphics.drawable.BitmapDrawable) e.banner).setFilterBitmap(true);
+            }
             h.banner.setImageDrawable(e.banner);
             h.banner.setVisibility(View.VISIBLE);
             h.icon.setVisibility(View.GONE);
@@ -503,6 +526,10 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         } else {
             h.banner.setImageDrawable(null);
             h.banner.setVisibility(View.GONE);
+            if (e.icon instanceof android.graphics.drawable.BitmapDrawable) {
+                ((android.graphics.drawable.BitmapDrawable) e.icon).setAntiAlias(true);
+                ((android.graphics.drawable.BitmapDrawable) e.icon).setFilterBitmap(true);
+            }
             h.icon.setImageDrawable(e.icon);
             h.icon.setVisibility(View.VISIBLE);
             h.label.setText(e.label);
