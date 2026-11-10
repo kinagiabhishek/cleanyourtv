@@ -69,4 +69,15 @@ public class HomeKeyServiceTest {
         assertFalse(HomeKeyService.isPPlus(KeyEvent.KEYCODE_HOME, 0));
         assertFalse(HomeKeyService.isPPlusKey(null));
     }
+
+    @Test public void channelDownAndPageDownArePMinus() {
+        assertTrue(HomeKeyService.isPMinus(KeyEvent.KEYCODE_CHANNEL_DOWN, 0));
+        assertTrue(HomeKeyService.isPMinus(KeyEvent.KEYCODE_PAGE_DOWN, 0));
+        assertTrue(HomeKeyService.isPMinus(0, 403));
+        assertTrue(HomeKeyService.isPMinus(0, 109));
+        assertTrue(HomeKeyService.isPMinus(0, 178));
+        assertFalse(HomeKeyService.isPMinus(KeyEvent.KEYCODE_CHANNEL_UP, 0));
+        assertFalse(HomeKeyService.isPMinus(KeyEvent.KEYCODE_HOME, 0));
+        assertFalse(HomeKeyService.isPMinusKey(null));
+    }
 }

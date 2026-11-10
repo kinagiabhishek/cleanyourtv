@@ -28,6 +28,7 @@ import android.widget.Toast;
 
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -70,6 +71,15 @@ public class HomeKeyService extends AccessibilityService {
     private final Runnable pPlusForceClose = () -> {
         pPlusFired = true;
         forceCloseForegroundApp();
+    };
+
+    private boolean pMinusFired;
+    private final Runnable pMinusWarning = () -> {
+        Toast.makeText(this, "Keep holding P- to kill all apps & clean RAM...", Toast.LENGTH_SHORT).show();
+    };
+    private final Runnable pMinusKillAll = () -> {
+        pMinusFired = true;
+        killAllAppsAndFreeRam();
     };
 
     /** restore_key_services was on when the config was read: this helper is noted for ServiceRepair. */
@@ -161,6 +171,8 @@ public class HomeKeyService extends AccessibilityService {
         if (running == this) running = null;
         handler.removeCallbacks(pPlusWarning);
         handler.removeCallbacks(pPlusForceClose);
+        handler.removeCallbacks(pMinusWarning);
+        handler.removeCallbacks(pMinusKillAll);
         RemoteKeys.release(this);
         stopWaitingForUnlock();
         if (screenOnReceiver != null) unregisterReceiver(screenOnReceiver);
@@ -295,6 +307,29 @@ public class HomeKeyService extends AccessibilityService {
                 Log.i("HomeKeyService", "P+ up: pPlusFired=" + pPlusFired);
                 if (pPlusFired) {
                     pPlusFired = false;
+                    return true;
+                }
+                return false;
+            }
+        }
+        if (isPMinusKey(event)) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                if (event.getRepeatCount() == 0) {
+                    pMinusFired = false;
+                    handler.removeCallbacks(pMinusWarning);
+                    handler.removeCallbacks(pMinusKillAll);
+                    handler.postDelayed(pMinusWarning, FORCE_CLOSE_WARN_MS);
+                    handler.postDelayed(pMinusKillAll, FORCE_CLOSE_HOLD_MS);
+                    Log.i("HomeKeyService", "P- down: armed 5s kill-all timer");
+                    return false;
+                }
+                return true;
+            } else if (event.getAction() == KeyEvent.ACTION_UP) {
+                handler.removeCallbacks(pMinusWarning);
+                handler.removeCallbacks(pMinusKillAll);
+                Log.i("HomeKeyService", "P- up: pMinusFired=" + pMinusFired);
+                if (pMinusFired) {
+                    pMinusFired = false;
                     return true;
                 }
                 return false;
@@ -467,6 +502,18 @@ public class HomeKeyService extends AccessibilityService {
         return event != null && isPPlus(event.getKeyCode(), event.getScanCode());
     }
 
+    static boolean isPMinus(int keyCode, int scanCode) {
+        return keyCode == KeyEvent.KEYCODE_CHANNEL_DOWN
+                || keyCode == KeyEvent.KEYCODE_PAGE_DOWN
+                || scanCode == 403
+                || scanCode == 109
+                || scanCode == 178;
+    }
+
+    static boolean isPMinusKey(KeyEvent event) {
+        return event != null && isPMinus(event.getKeyCode(), event.getScanCode());
+    }
+
     private String getForegroundPackage() {
         if (frontPackage != null && !frontPackage.isEmpty()) {
             return frontPackage;
@@ -533,6 +580,55 @@ public class HomeKeyService extends AccessibilityService {
 
         frontPackage = getPackageName();
         Toast.makeText(this, "Force closed " + label, Toast.LENGTH_LONG).show();
+    }
+
+    private void killAllAppsAndFreeRam() {
+        Log.i("HomeKeyService", "P- 5s hold expired: killing all apps & freeing RAM");
+        openHome();
+        performGlobalAction(GLOBAL_ACTION_HOME);
+
+        ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        if (am != null) {
+            List<ActivityManager.RunningAppProcessInfo> procs = am.getRunningAppProcesses();
+            if (procs != null) {
+                for (ActivityManager.RunningAppProcessInfo proc : procs) {
+                    if (proc.pkgList != null) {
+                        for (String pkg : proc.pkgList) {
+                            if (isCloseablePackage(pkg)) {
+                                am.killBackgroundProcesses(pkg);
+                            }
+                        }
+                    }
+                }
+            }
+
+            LastOpened.cleanupIdleApps(this, 0L);
+
+            handler.postDelayed(() -> {
+                if (am != null) {
+                    List<ActivityManager.RunningAppProcessInfo> runnings = am.getRunningAppProcesses();
+                    if (runnings != null) {
+                        for (ActivityManager.RunningAppProcessInfo p : runnings) {
+                            if (p.pkgList != null) {
+                                for (String pkg : p.pkgList) {
+                                    if (isCloseablePackage(pkg)) am.killBackgroundProcesses(pkg);
+                                }
+                            }
+                        }
+                    }
+                    LastOpened.cleanupIdleApps(this, 0L);
+                }
+            }, 400L);
+
+            ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+            am.getMemoryInfo(mi);
+            long freeMb = mi.availMem / (1024 * 1024);
+            Toast.makeText(this, "Cleaned RAM: " + freeMb + " MB available", Toast.LENGTH_LONG).show();
+        } else {
+            Toast.makeText(this, "All background apps closed", Toast.LENGTH_SHORT).show();
+        }
+
+        frontPackage = getPackageName();
     }
 
     static boolean isShortPress(long downTime, long upTime, long longPressTimeout) {
