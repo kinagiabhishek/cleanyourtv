@@ -2,6 +2,7 @@ package com.gathin.tvhome;
 
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
+import android.app.ActivityManager;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -15,12 +16,14 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.os.UserManager;
+import android.util.Log;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.provider.Settings;
 import android.view.KeyEvent;
 import android.view.ViewConfiguration;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.Toast;
 
 import java.util.Collections;
@@ -50,6 +53,24 @@ import java.util.Set;
  *   settings put secure accessibility_enabled 1
  */
 public class HomeKeyService extends AccessibilityService {
+
+    /** Duration in milliseconds to hold P+ before force-closing the foreground app (5 seconds). */
+    static final long FORCE_CLOSE_HOLD_MS = 5000L;
+    /** Duration in milliseconds before showing the reassuring countdown toast (2 seconds). */
+    static final long FORCE_CLOSE_WARN_MS = 2000L;
+
+    private boolean pPlusFired;
+    private final Runnable pPlusWarning = () -> {
+        String target = getForegroundPackage();
+        if (isCloseablePackage(target)) {
+            CharSequence name = getAppLabel(target);
+            Toast.makeText(this, "Keep holding P+ to force close " + name + "...", Toast.LENGTH_SHORT).show();
+        }
+    };
+    private final Runnable pPlusForceClose = () -> {
+        pPlusFired = true;
+        forceCloseForegroundApp();
+    };
 
     /** restore_key_services was on when the config was read: this helper is noted for ServiceRepair. */
     private boolean repairRecord;
@@ -138,6 +159,8 @@ public class HomeKeyService extends AccessibilityService {
     @Override
     public void onDestroy() {
         if (running == this) running = null;
+        handler.removeCallbacks(pPlusWarning);
+        handler.removeCallbacks(pPlusForceClose);
         RemoteKeys.release(this);
         stopWaitingForUnlock();
         if (screenOnReceiver != null) unregisterReceiver(screenOnReceiver);
@@ -221,9 +244,9 @@ public class HomeKeyService extends AccessibilityService {
             screenOnReceiver = null;
             powerOnUntil = 0;
         }
-        // home_key_service.xml subscribes to no events, so the redirects ask for window changes only when one is on.
+        // Window state changes track the foreground app for P+ 5-second force close and redirects.
         AccessibilityServiceInfo info = getServiceInfo();
-        if (info != null && (!stockHome.isEmpty() || !powerOnLiveTv.isEmpty() || watchFront)) {
+        if (info != null) {
             info.eventTypes |= AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED;
             setServiceInfo(info);
         }
@@ -254,6 +277,29 @@ public class HomeKeyService extends AccessibilityService {
 
     @Override
     protected boolean onKeyEvent(KeyEvent event) {
+        if (isPPlusKey(event)) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                if (event.getRepeatCount() == 0) {
+                    pPlusFired = false;
+                    handler.removeCallbacks(pPlusWarning);
+                    handler.removeCallbacks(pPlusForceClose);
+                    handler.postDelayed(pPlusWarning, FORCE_CLOSE_WARN_MS);
+                    handler.postDelayed(pPlusForceClose, FORCE_CLOSE_HOLD_MS);
+                    Log.i("HomeKeyService", "P+ down: armed 5s force-close timer");
+                    return false;
+                }
+                return true;
+            } else if (event.getAction() == KeyEvent.ACTION_UP) {
+                handler.removeCallbacks(pPlusWarning);
+                handler.removeCallbacks(pPlusForceClose);
+                Log.i("HomeKeyService", "P+ up: pPlusFired=" + pPlusFired);
+                if (pPlusFired) {
+                    pPlusFired = false;
+                    return true;
+                }
+                return false;
+            }
+        }
         // power_on_home: the first key after power-on hands the TV to the user (power and wake keys don't count).
         if (powerOnUntil != 0 && event.getAction() == KeyEvent.ACTION_DOWN
                 && event.getKeyCode() != KeyEvent.KEYCODE_POWER && event.getKeyCode() != KeyEvent.KEYCODE_WAKEUP) {
@@ -303,9 +349,8 @@ public class HomeKeyService extends AccessibilityService {
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
-        // app_keys "front:" entries: only activities count, so a toast or the volume bar doesn't change the app in front.
-        if ((!frontAppKeys.isEmpty() || !frontAppScancodes.isEmpty())
-                && event.getPackageName() != null && event.getClassName() != null) {
+        // Always track frontPackage for P+ force close and app_keys "front:" entries.
+        if (event.getPackageName() != null && event.getClassName() != null) {
             try {
                 ComponentName window = new ComponentName(event.getPackageName().toString(), event.getClassName().toString());
                 getPackageManager().getActivityInfo(window, 0);
@@ -408,6 +453,86 @@ public class HomeKeyService extends AccessibilityService {
                 && isShortPress(event.getDownTime(), event.getEventTime(), ViewConfiguration.getLongPressTimeout())) {
             handler.postDelayed(this::openHome, HOME_KEY_DELAY_MS);
         }
+    }
+
+    static boolean isPPlus(int keyCode, int scanCode) {
+        return keyCode == KeyEvent.KEYCODE_CHANNEL_UP
+                || keyCode == KeyEvent.KEYCODE_PAGE_UP
+                || scanCode == 402
+                || scanCode == 104
+                || scanCode == 177;
+    }
+
+    static boolean isPPlusKey(KeyEvent event) {
+        return event != null && isPPlus(event.getKeyCode(), event.getScanCode());
+    }
+
+    private String getForegroundPackage() {
+        if (frontPackage != null && !frontPackage.isEmpty()) {
+            return frontPackage;
+        }
+        try {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root != null && root.getPackageName() != null) {
+                return root.getPackageName().toString();
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
+    private boolean isCloseablePackage(String pkg) {
+        if (pkg == null || pkg.isEmpty()) return false;
+        String myPkg = getPackageName();
+        if (pkg.equals(myPkg)) return false;
+        if (pkg.equals("com.android.systemui")) return false;
+        if (pkg.equals("android")) return false;
+        return true;
+    }
+
+    private CharSequence getAppLabel(String pkg) {
+        try {
+            PackageManager pm = getPackageManager();
+            return pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0));
+        } catch (Exception ignored) {
+            return pkg;
+        }
+    }
+
+    private void forceCloseForegroundApp() {
+        String target = getForegroundPackage();
+        Log.i("HomeKeyService", "P+ 5s hold expired: target=" + target);
+        if (!isCloseablePackage(target)) {
+            LastOpened.cleanupIdleApps(this, 0L);
+            Toast.makeText(this, "Cleaned background RAM", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        CharSequence label = getAppLabel(target);
+        Log.i("HomeKeyService", "Force closing app: " + target + " (" + label + ")");
+        openHome();
+        performGlobalAction(GLOBAL_ACTION_HOME);
+
+        ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        if (am != null) {
+            am.killBackgroundProcesses(target);
+        }
+
+        final String pkgToKill = target;
+        handler.postDelayed(() -> {
+            if (am != null) am.killBackgroundProcesses(pkgToKill);
+        }, 300L);
+        handler.postDelayed(() -> {
+            if (am != null) am.killBackgroundProcesses(pkgToKill);
+        }, 1000L);
+
+        try {
+            Runtime.getRuntime().exec(new String[]{"am", "force-stop", pkgToKill});
+        } catch (Exception ignored) {
+        }
+
+        frontPackage = getPackageName();
+        Toast.makeText(this, "Force closed " + label, Toast.LENGTH_LONG).show();
     }
 
     static boolean isShortPress(long downTime, long upTime, long longPressTimeout) {

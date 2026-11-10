@@ -1,5 +1,6 @@
 package com.gathin.tvhome;
 
+import android.view.KeyEvent;
 import org.junit.Test;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -56,5 +57,16 @@ public class HomeKeyServiceTest {
     @Test public void alwaysGoesHomeAfterScreenOnUntilAKey() {
         assertTrue(HomeKeyService.stillArmed(SOON, SOON + HomeKeyService.SCREEN_ON_WINDOW_MS));
         assertFalse(HomeKeyService.stillArmed(SOON, 0));
+    }
+
+    @Test public void channelUpAndPageUpArePPlus() {
+        assertTrue(HomeKeyService.isPPlus(KeyEvent.KEYCODE_CHANNEL_UP, 0));
+        assertTrue(HomeKeyService.isPPlus(KeyEvent.KEYCODE_PAGE_UP, 0));
+        assertTrue(HomeKeyService.isPPlus(0, 402));
+        assertTrue(HomeKeyService.isPPlus(0, 104));
+        assertTrue(HomeKeyService.isPPlus(0, 177));
+        assertFalse(HomeKeyService.isPPlus(KeyEvent.KEYCODE_CHANNEL_DOWN, 0));
+        assertFalse(HomeKeyService.isPPlus(KeyEvent.KEYCODE_HOME, 0));
+        assertFalse(HomeKeyService.isPPlusKey(null));
     }
 }
