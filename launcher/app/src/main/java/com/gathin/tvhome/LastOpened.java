@@ -1,15 +1,15 @@
 package com.gathin.tvhome;
 
+import android.app.ActivityManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.text.format.DateUtils;
 
 import java.util.Locale;
+import java.util.Map;
 
 /**
- * When an app was last opened from Home, for the cinematic shelf's "Last opened" line: the launcher notes the
- * time whenever it opens an app. No permission and nothing read from other apps, so an app started some other
- * way (a remote's own Netflix button) shows the last time Home opened it.
+ * When an app was last opened from Home, for the cinematic shelf's "Last opened" line and for the 10-minute idle RAM cleaner.
  */
 final class LastOpened {
     private static final String PREFS = "last_opened";
@@ -19,12 +19,40 @@ final class LastOpened {
 
     /** Notes that Home just opened this app. */
     static void record(Context ctx, String pkg) {
+        if (ctx == null || pkg == null) return;
         prefs(ctx).edit().putLong(pkg, System.currentTimeMillis()).apply();
     }
 
     /** Milliseconds since the epoch, or 0 when Home never opened the app. */
     static long get(Context ctx, String pkg) {
         return pkg == null ? 0L : prefs(ctx).getLong(pkg, 0L);
+    }
+
+    /**
+     * Kills background processes of any app not opened in the last maxIdleMs (e.g. 10 minutes)
+     * to save RAM and prevent frozen background state bugs.
+     */
+    static void cleanupIdleApps(Context ctx, long maxIdleMs) {
+        if (ctx == null) return;
+        ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
+        if (am == null) return;
+        SharedPreferences sp = prefs(ctx);
+        long now = System.currentTimeMillis();
+        String myPkg = ctx.getPackageName();
+        for (Map.Entry<String, ?> entry : sp.getAll().entrySet()) {
+            String pkg = entry.getKey();
+            if (pkg == null || pkg.equals(myPkg)) continue;
+            Object val = entry.getValue();
+            if (val instanceof Long) {
+                long last = (Long) val;
+                if (now - last >= maxIdleMs) {
+                    try {
+                        am.killBackgroundProcesses(pkg);
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        }
     }
 
     /**
